@@ -534,3 +534,426 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# ============================================================================
+# Enhanced Evaluation with Entropy Features
+# ============================================================================
+
+def plot_ablation_results(
+    results: Dict[str, Dict],
+    save_path: Optional[str] = None
+):
+    """
+    Plot ablation study results comparing different feature combinations.
+    
+    Args:
+        results: Dict from run_ablation_study
+        save_path: Path to save figure
+    """
+    models = list(results.keys())
+    mae_values = [results[m]['mae'] for m in models]
+    rmse_values = [results[m]['rmse'] for m in models]
+    accuracy_values = [results[m]['accuracy'] for m in models]
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # MAE comparison
+    bars1 = axes[0].bar(models, mae_values, color=['steelblue', 'darkorange', 'green'])
+    axes[0].set_ylabel('MAE', fontsize=12)
+    axes[0].set_title('Mean Absolute Error', fontsize=14)
+    axes[0].tick_params(axis='x', rotation=45)
+    for bar, val in zip(bars1, mae_values):
+        axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                    f'{val:.1f}', ha='center', va='bottom', fontsize=10)
+    
+    # RMSE comparison
+    bars2 = axes[1].bar(models, rmse_values, color=['steelblue', 'darkorange', 'green'])
+    axes[1].set_ylabel('RMSE', fontsize=12)
+    axes[1].set_title('Root Mean Square Error', fontsize=14)
+    axes[1].tick_params(axis='x', rotation=45)
+    for bar, val in zip(bars2, rmse_values):
+        axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
+                    f'{val:.1f}', ha='center', va='bottom', fontsize=10)
+    
+    # Accuracy comparison
+    bars3 = axes[2].bar(models, accuracy_values, color=['steelblue', 'darkorange', 'green'])
+    axes[2].set_ylabel('Accuracy', fontsize=12)
+    axes[2].set_title('Top-1 Accuracy', fontsize=14)
+    axes[2].tick_params(axis='x', rotation=45)
+    for bar, val in zip(bars3, accuracy_values):
+        axes[2].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                    f'{val:.3f}', ha='center', va='bottom', fontsize=10)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        Path(os.path.dirname(save_path)).mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved to {save_path}")
+    
+    plt.show()
+
+
+def plot_k_analysis_results(
+    results: Dict[int, Dict],
+    save_path: Optional[str] = None
+):
+    """
+    Plot K-value analysis results.
+    
+    Args:
+        results: Dict from analyze_k_values
+        save_path: Path to save figure
+    """
+    k_values = sorted([k for k in results.keys() if isinstance(k, int)])
+    mae_values = [results[k]['mae'] for k in k_values]
+    rmse_values = [results[k]['rmse'] for k in k_values]
+    accuracy_values = [results[k]['accuracy'] for k in k_values]
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    
+    # MAE vs K
+    axes[0].plot(k_values, mae_values, 'bo-', linewidth=2, markersize=8)
+    axes[0].set_xlabel('K (Number of Initial Tokens)', fontsize=12)
+    axes[0].set_ylabel('MAE', fontsize=12)
+    axes[0].set_title('MAE vs K', fontsize=14)
+    axes[0].grid(True, alpha=0.3)
+    
+    # Find optimal K
+    best_k_idx = np.argmin(mae_values)
+    axes[0].scatter([k_values[best_k_idx]], [mae_values[best_k_idx]], 
+                   c='red', s=150, zorder=5, label=f'Best K={k_values[best_k_idx]}')
+    axes[0].legend()
+    
+    # RMSE vs K
+    axes[1].plot(k_values, rmse_values, 'go-', linewidth=2, markersize=8)
+    axes[1].set_xlabel('K (Number of Initial Tokens)', fontsize=12)
+    axes[1].set_ylabel('RMSE', fontsize=12)
+    axes[1].set_title('RMSE vs K', fontsize=14)
+    axes[1].grid(True, alpha=0.3)
+    
+    # Accuracy vs K
+    axes[2].plot(k_values, accuracy_values, 'ro-', linewidth=2, markersize=8)
+    axes[2].set_xlabel('K (Number of Initial Tokens)', fontsize=12)
+    axes[2].set_ylabel('Accuracy', fontsize=12)
+    axes[2].set_title('Accuracy vs K', fontsize=14)
+    axes[2].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        Path(os.path.dirname(save_path)).mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved to {save_path}")
+    
+    plt.show()
+
+
+def plot_entropy_feature_importance(
+    model,
+    feature_names: Optional[List[str]] = None,
+    save_path: Optional[str] = None
+):
+    """
+    Plot feature importance based on model weights.
+    
+    Args:
+        model: Trained EnhancedLengthPredictor
+        feature_names: Names of entropy features
+        save_path: Path to save figure
+    """
+    if feature_names is None:
+        feature_names = [
+            'attn_mean', 'attn_std', 'attn_max', 'attn_min', 'attn_var',
+            'attn_skew', 'attn_kurt', 'attn_trend', 'attn_vol', 'attn_peaks',
+            'logits_mean', 'logits_std', 'logits_max', 'logits_min', 'logits_var',
+            'logits_skew', 'logits_kurt', 'logits_trend', 'logits_vol', 'logits_peaks',
+            'corr', 'ratio', 'diff', 'product'
+        ]
+    
+    # Get first layer weights of entropy encoder
+    if hasattr(model, 'entropy_encoder') and model.entropy_encoder is not None:
+        weights = model.entropy_encoder.fc1.weight.data.abs().mean(dim=0).cpu().numpy()
+        
+        # Normalize
+        weights = weights / weights.sum()
+        
+        # Sort by importance
+        sorted_idx = np.argsort(weights)[::-1]
+        sorted_names = [feature_names[i] for i in sorted_idx]
+        sorted_weights = weights[sorted_idx]
+        
+        plt.figure(figsize=(12, 6))
+        bars = plt.bar(range(len(sorted_weights)), sorted_weights, color='steelblue')
+        plt.xticks(range(len(sorted_names)), sorted_names, rotation=45, ha='right')
+        plt.xlabel('Feature', fontsize=12)
+        plt.ylabel('Importance (Normalized Weight)', fontsize=12)
+        plt.title('Entropy Feature Importance', fontsize=14)
+        plt.grid(True, alpha=0.3, axis='y')
+        
+        # Highlight top 5
+        for i in range(min(5, len(bars))):
+            bars[i].set_color('darkorange')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            Path(os.path.dirname(save_path)).mkdir(parents=True, exist_ok=True)
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"Saved to {save_path}")
+        
+        plt.show()
+    else:
+        print("Model does not have entropy encoder")
+
+
+def plot_prediction_error_distribution(
+    predictions: List[float],
+    targets: List[float],
+    save_path: Optional[str] = None
+):
+    """
+    Plot distribution of prediction errors.
+    
+    Args:
+        predictions: List of predicted lengths
+        targets: List of ground truth lengths
+        save_path: Path to save figure
+    """
+    errors = np.array(predictions) - np.array(targets)
+    
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Error histogram
+    axes[0].hist(errors, bins=50, color='steelblue', edgecolor='black', alpha=0.7)
+    axes[0].axvline(x=0, color='red', linestyle='--', linewidth=2, label='Zero Error')
+    axes[0].axvline(x=np.mean(errors), color='green', linestyle='-', linewidth=2, 
+                   label=f'Mean Error: {np.mean(errors):.2f}')
+    axes[0].set_xlabel('Prediction Error (Predicted - Actual)', fontsize=12)
+    axes[0].set_ylabel('Frequency', fontsize=12)
+    axes[0].set_title('Prediction Error Distribution', fontsize=14)
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+    
+    # Scatter plot: Predicted vs Actual
+    axes[1].scatter(targets, predictions, alpha=0.5, s=20)
+    max_val = max(max(targets), max(predictions))
+    axes[1].plot([0, max_val], [0, max_val], 'r--', linewidth=2, label='Perfect Prediction')
+    axes[1].set_xlabel('Actual Length', fontsize=12)
+    axes[1].set_ylabel('Predicted Length', fontsize=12)
+    axes[1].set_title('Predicted vs Actual Length', fontsize=14)
+    axes[1].legend()
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        Path(os.path.dirname(save_path)).mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved to {save_path}")
+    
+    plt.show()
+    
+    # Print statistics
+    print(f"\nError Statistics:")
+    print(f"  Mean Error: {np.mean(errors):.2f}")
+    print(f"  Std Error: {np.std(errors):.2f}")
+    print(f"  MAE: {np.mean(np.abs(errors)):.2f}")
+    print(f"  RMSE: {np.sqrt(np.mean(errors**2)):.2f}")
+    print(f"  Median Error: {np.median(errors):.2f}")
+    print(f"  95th Percentile Error: {np.percentile(np.abs(errors), 95):.2f}")
+
+
+def compute_statistical_significance(
+    baseline_errors: List[float],
+    enhanced_errors: List[float],
+    alpha: float = 0.05
+) -> Dict[str, any]:
+    """
+    Compute statistical significance of improvement using paired t-test.
+    
+    Args:
+        baseline_errors: Absolute errors from baseline model
+        enhanced_errors: Absolute errors from enhanced model
+        alpha: Significance level
+        
+    Returns:
+        Dict with t-statistic, p-value, and whether improvement is significant
+    """
+    from scipy import stats
+    
+    baseline_errors = np.array(baseline_errors)
+    enhanced_errors = np.array(enhanced_errors)
+    
+    # Paired t-test (one-sided: enhanced < baseline)
+    t_stat, p_value = stats.ttest_rel(baseline_errors, enhanced_errors)
+    p_value_onesided = p_value / 2 if t_stat > 0 else 1 - p_value / 2
+    
+    # Effect size (Cohen's d)
+    diff = baseline_errors - enhanced_errors
+    cohens_d = np.mean(diff) / np.std(diff)
+    
+    # Bootstrap confidence interval
+    n_bootstrap = 1000
+    bootstrap_diffs = []
+    for _ in range(n_bootstrap):
+        idx = np.random.choice(len(diff), size=len(diff), replace=True)
+        bootstrap_diffs.append(np.mean(diff[idx]))
+    
+    ci_lower = np.percentile(bootstrap_diffs, 2.5)
+    ci_upper = np.percentile(bootstrap_diffs, 97.5)
+    
+    is_significant = p_value_onesided < alpha
+    
+    return {
+        't_statistic': float(t_stat),
+        'p_value': float(p_value),
+        'p_value_onesided': float(p_value_onesided),
+        'cohens_d': float(cohens_d),
+        'mean_improvement': float(np.mean(diff)),
+        'ci_95': (float(ci_lower), float(ci_upper)),
+        'is_significant': bool(is_significant),
+        'alpha': alpha
+    }
+
+
+def plot_comparison_with_baseline(
+    baseline_results: Dict,
+    enhanced_results: Dict,
+    save_path: Optional[str] = None
+):
+    """
+    Plot comparison between baseline (embedding only) and enhanced model.
+    
+    Args:
+        baseline_results: Results dict from baseline model
+        enhanced_results: Results dict from enhanced model
+        save_path: Path to save figure
+    """
+    metrics = ['mae', 'rmse', 'accuracy', 'top3_accuracy']
+    metric_labels = ['MAE', 'RMSE', 'Accuracy', 'Top-3 Accuracy']
+    
+    baseline_vals = [baseline_results.get(m, 0) for m in metrics]
+    enhanced_vals = [enhanced_results.get(m, 0) for m in metrics]
+    
+    x = np.arange(len(metrics))
+    width = 0.35
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    bars1 = ax.bar(x - width/2, baseline_vals, width, label='Baseline (Embedding Only)', 
+                   color='steelblue', alpha=0.8)
+    bars2 = ax.bar(x + width/2, enhanced_vals, width, label='Enhanced (+ Entropy)', 
+                   color='darkorange', alpha=0.8)
+    
+    ax.set_xlabel('Metric', fontsize=12)
+    ax.set_ylabel('Value', fontsize=12)
+    ax.set_title('Baseline vs Enhanced Model Comparison', fontsize=14)
+    ax.set_xticks(x)
+    ax.set_xticklabels(metric_labels)
+    ax.legend()
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Add value labels
+    for bar in bars1:
+        height = bar.get_height()
+        ax.annotate(f'{height:.2f}',
+                   xy=(bar.get_x() + bar.get_width() / 2, height),
+                   xytext=(0, 3),
+                   textcoords="offset points",
+                   ha='center', va='bottom', fontsize=9)
+    
+    for bar in bars2:
+        height = bar.get_height()
+        ax.annotate(f'{height:.2f}',
+                   xy=(bar.get_x() + bar.get_width() / 2, height),
+                   xytext=(0, 3),
+                   textcoords="offset points",
+                   ha='center', va='bottom', fontsize=9)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        Path(os.path.dirname(save_path)).mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        print(f"Saved to {save_path}")
+    
+    plt.show()
+    
+    # Print improvement
+    print("\nImprovement Summary:")
+    for metric, label in zip(metrics, metric_labels):
+        baseline_val = baseline_results.get(metric, 0)
+        enhanced_val = enhanced_results.get(metric, 0)
+        if metric in ['mae', 'rmse']:
+            # Lower is better
+            improvement = (baseline_val - enhanced_val) / baseline_val * 100
+            print(f"  {label}: {baseline_val:.2f} → {enhanced_val:.2f} ({improvement:+.1f}%)")
+        else:
+            # Higher is better
+            improvement = (enhanced_val - baseline_val) / baseline_val * 100
+            print(f"  {label}: {baseline_val:.4f} → {enhanced_val:.4f} ({improvement:+.1f}%)")
+
+
+def measure_inference_overhead(
+    model,
+    sample_embeddings: torch.Tensor,
+    sample_entropy_features: torch.Tensor,
+    num_iterations: int = 100,
+    device: str = 'cpu'
+) -> Dict[str, float]:
+    """
+    Measure computational overhead of entropy feature computation.
+    
+    Args:
+        model: EnhancedLengthPredictor
+        sample_embeddings: Sample embedding batch
+        sample_entropy_features: Sample entropy feature batch
+        num_iterations: Number of iterations for timing
+        device: Device to run on
+        
+    Returns:
+        Dict with timing statistics
+    """
+    import time
+    
+    model = model.to(device)
+    model.eval()
+    embeddings = sample_embeddings.to(device)
+    entropy_features = sample_entropy_features.to(device)
+    
+    # Warm up
+    with torch.no_grad():
+        for _ in range(10):
+            _ = model(embeddings, entropy_features)
+    
+    # Measure with entropy
+    torch.cuda.synchronize() if device == 'cuda' else None
+    start = time.perf_counter()
+    with torch.no_grad():
+        for _ in range(num_iterations):
+            _ = model(embeddings, entropy_features)
+    torch.cuda.synchronize() if device == 'cuda' else None
+    time_with_entropy = (time.perf_counter() - start) / num_iterations * 1000  # ms
+    
+    # Measure without entropy (embedding only)
+    torch.cuda.synchronize() if device == 'cuda' else None
+    start = time.perf_counter()
+    with torch.no_grad():
+        for _ in range(num_iterations):
+            _ = model(embeddings, None)
+    torch.cuda.synchronize() if device == 'cuda' else None
+    time_embedding_only = (time.perf_counter() - start) / num_iterations * 1000  # ms
+    
+    overhead = time_with_entropy - time_embedding_only
+    overhead_percent = (overhead / time_embedding_only) * 100
+    
+    return {
+        'time_with_entropy_ms': time_with_entropy,
+        'time_embedding_only_ms': time_embedding_only,
+        'overhead_ms': overhead,
+        'overhead_percent': overhead_percent,
+        'batch_size': embeddings.shape[0],
+        'num_iterations': num_iterations
+    }
