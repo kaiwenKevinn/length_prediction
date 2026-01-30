@@ -1,0 +1,19 @@
+# TRAIL Length Prediction Dependencies
+# Based on: DON'T STOP ME NOW: EMBEDDING BASED SCHEDULING FOR LLMS (ICLR 2025)
+
+# Core dependencies
+torch>=2.0.0
+transformers>=4.35.0
+datasets>=2.14.0
+
+# Training and evaluation
+numpy>=1.24.0
+tqdm>=4.65.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Utilities
+pathlib
+dataclasses
